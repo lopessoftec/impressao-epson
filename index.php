@@ -1,159 +1,112 @@
 <?php
+
 require __DIR__ . '/vendor/autoload.php';
 
 use Mike42\Escpos\PrintConnectors\FilePrintConnector;
 use Mike42\Escpos\Printer;
 
-$connector = new FilePrintConnector("/dev/usb/lp1");
+include 'classes/DescricaoProduto.php';
+include 'classes/ItensVenda.php';
+include 'classes/FormaPagamento.php';
+include 'classes/Token.php';
 
-/* Information for the receipt */
-$data = json_decode(file_get_contents('php://input'), true);
+date_default_timezone_set('America/Fortaleza');
 
-$items = [];
-$total = 0;
-foreach ($data['sale_filter'] as $value) {
+$_ENV = parse_ini_file('.env');
 
-    $items[] = new descricaoProduto($value['barcode'], $value['product_name']);
-    $items[] = new itensVenda($value['amount'], $value['sale_detail_value'], $value['final_value']);
-    $total += $value['final_value'];
+try {
+    $connector = new FilePrintConnector("/dev/usb/lp1");
+} catch (Exception $e) {
+    echo "Permissão negada de acesso a porta da impressora, dê permissão a ela!";
+    exit;
 }
 
-$items_payment = [];
+$token = Token::getInstance();
+$token_acesso = $token->getToken();
 
-foreach ($data['formas_pagamento_filter'] as $value) {
+$authorization = "Authorization: Bearer $token_acesso";
 
-    $items_payment[] = new formaPagamento($value['description'], $value['payment_sale_value']);
-}
+$url = $_ENV['ENDPOINT_VENDA_CUPOM'];
+$ch = curl_init($url);
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json', $authorization));
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "GET");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+// curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
+$data_json = curl_exec($ch);
 
-$printer = new Printer($connector);
+curl_close($ch);
 
-$printer->setJustification(Printer::JUSTIFY_CENTER);
-$printer->text(date('d/m/Y - h:i:s') . "\n");
-$printer->feed();
+$data = json_decode($data_json);
 
-/* Title of receipt */
-$printer->setEmphasis(true);
-$printer->text("Descrição\n");
-$printer->setEmphasis(false);
+if ($data->status) {
 
-/* Items */
-$printer->setJustification(Printer::JUSTIFY_LEFT);
+    $items = [];
+    $total = 0;
+    foreach ($data->sale_filter as $value) {
 
-foreach ($items as $item) {
-    $printer->text($item);
-}
-
-$printer->setJustification(Printer::JUSTIFY_CENTER);
-
-$printer->feed();
-$printer->setEmphasis(true);
-$printer->text("Forma de pagamento\n");
-$printer->setEmphasis(false);
-
-$printer->setJustification(Printer::JUSTIFY_LEFT);
-
-foreach ($items_payment as $item_payment) {
-    $printer->text($item_payment);
-}
-
-/* Tax and total */
-$printer->feed();
-$printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
-$printer->text(new formaPagamento('Total', $total, true));
-$printer->selectPrintMode();
-
-/* Footer */
-$printer->feed();
-$printer->setJustification(Printer::JUSTIFY_CENTER);
-$printer->text("Muito obrigado, volte sempre!\n");
-$printer->feed();
-
-/* Cut the receipt and open the cash drawer */
-$printer->cut();
-$printer->pulse();
-
-$printer->close();
-class descricaoProduto
-{
-    private $codigo;
-    private $nome;
-    private $dollarSign;
-
-    public function __construct($codigo = '', $nome = '', $dollarSign = false)
-    {
-        $this->codigo = $codigo;
-        $this->nome = $nome;
-        $this->dollarSign = $dollarSign;
+        $items[] = new DescricaoProduto($value->barcode, $value->product_name);
+        $items[] = new ItensVenda($value->amount, $value->sale_detail_value, $value->final_value);
+        $total += $value->final_value;
     }
 
-    public function __toString()
-    {
-        $rightCols = 10;
-        $leftCols = 38;
-        if ($this->dollarSign) {
-            $leftCols = $leftCols / 2 - $rightCols / 2;
-        }
+    $items_payment = [];
 
-        $left = str_pad($this->codigo . ' - ' . $this->nome, $leftCols);
+    foreach ($data->formas_pagamento_filter as $value) {
 
-        return "$left\n";
+        $items_payment[] = new formaPagamento($value->description, $value->payment_sale_value);
     }
+
+    $printer = new Printer($connector);
+
+    $printer->setJustification(Printer::JUSTIFY_CENTER);
+    $printer->text(date('d/m/Y - h:i:s') . "\n");
+    $printer->feed();
+
+    /* Title of receipt */
+    $printer->setEmphasis(true);
+    $printer->text("Descrição\n");
+    $printer->setEmphasis(false);
+
+    /* Items */
+    $printer->setJustification(Printer::JUSTIFY_LEFT);
+
+    foreach ($items as $item) {
+        $printer->text($item);
+    }
+
+    $printer->setJustification(Printer::JUSTIFY_CENTER);
+
+    $printer->feed();
+    $printer->setEmphasis(true);
+    $printer->text("Forma de pagamento\n");
+    $printer->setEmphasis(false);
+
+    $printer->setJustification(Printer::JUSTIFY_LEFT);
+
+    foreach ($items_payment as $item_payment) {
+        $printer->text($item_payment);
+    }
+
+    /* Tax and total */
+    $printer->feed();
+    $printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
+    $printer->text(new formaPagamento('Total', $total, true));
+    $printer->selectPrintMode();
+
+    /* Footer */
+    $printer->feed();
+    $printer->setJustification(Printer::JUSTIFY_CENTER);
+    $printer->text("Muito obrigado, volte sempre!\n");
+    $printer->feed();
+
+    /* Cut the receipt and open the cash drawer */
+    $printer->cut();
+    $printer->pulse();
+
+    $printer->close();
+
+    return 0;
 }
 
-/* A wrapper to do organise item names & prices into columns */
-class itensVenda
-{
-    private $quantidade;
-    private $preco;
-    private $dollarSign;
-
-    public function __construct($quantidade = '', $preco = '', $precoSubtotal, $dollarSign = false)
-    {
-        $this->quantidade = $quantidade;
-        $this->preco = $preco;
-        $this->precoSubtotal = $precoSubtotal;
-        $this->dollarSign = $dollarSign;
-    }
-
-    public function __toString()
-    {
-        $rightCols = 10;
-        $leftCols = 38;
-        if ($this->dollarSign) {
-            $leftCols = $leftCols / 2 - $rightCols / 2;
-        }
-        $left = str_pad($this->quantidade . ' * ' . $this->preco, $leftCols);
-
-        $sign = ($this->dollarSign ? 'R$ ' : '');
-        $right = str_pad($sign . $this->precoSubtotal, $rightCols, ' ', STR_PAD_LEFT);
-        return "$left$right\n";
-    }
-}
-
-class formaPagamento
-{
-    private $formaPagamento;
-    private $preco;
-    private $dollarSign;
-
-    public function __construct($formaPagamento = '', $preco = '', $dollarSign = false)
-    {
-        $this->formaPagamento = $formaPagamento;
-        $this->preco = $preco;
-        $this->dollarSign = $dollarSign;
-    }
-
-    public function __toString()
-    {
-        $rightCols = 10;
-        $leftCols = 38;
-        if ($this->dollarSign) {
-            $leftCols = $leftCols / 2 - $rightCols / 2;
-        }
-        $left = str_pad($this->formaPagamento, $leftCols);
-
-        $sign = ($this->dollarSign ? 'R$ ' : '');
-        $right = str_pad($sign . $this->preco, $rightCols, ' ', STR_PAD_LEFT);
-        return "$left$right\n";
-    }
-}
+return 0;
