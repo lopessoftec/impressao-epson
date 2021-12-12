@@ -20,10 +20,10 @@ class ItensVenda
         if ($this->dollarSign) {
             $leftCols = $leftCols / 2 - $rightCols / 2;
         }
-        $left = str_pad($this->quantidade . ' * ' . $this->preco, $leftCols);
+        $left = str_pad($this->quantidade . ' * ' . number_format($this->preco, 2, ',', '.'), $leftCols);
 
         $sign = ($this->dollarSign ? 'R$ ' : '');
-        $right = str_pad($sign . $this->precoSubtotal, $rightCols, ' ', STR_PAD_LEFT);
+        $right = str_pad($sign . number_format($this->precoSubtotal, 2, ',', '.'), $rightCols, ' ', STR_PAD_LEFT);
         return "$left$right\n";
     }
 }

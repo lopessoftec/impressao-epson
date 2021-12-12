@@ -22,8 +22,10 @@ try {
 
     $authorization = "Authorization: Bearer $token_acesso";
 
+    $sale_id = filter_input(INPUT_GET, 'sale_id', FILTER_VALIDATE_INT);
+
     $url = $_ENV['ENDPOINT_VENDA_CUPOM'];
-    $ch = curl_init($url);
+    $ch = curl_init($url . '/' . $sale_id);
     curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json', $authorization));
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "GET");
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -38,6 +40,7 @@ try {
 
         $items = [];
         $total = 0;
+
         foreach ($data->sale_filter as $value) {
 
             $items[] = new DescricaoProduto($value->barcode, $value->product_name);
@@ -70,6 +73,12 @@ try {
             $printer->text($item);
         }
 
+        /* Tax and total */
+        $printer->feed();
+        $printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
+        $printer->text(new formaPagamento('Total', $total, true));
+        $printer->selectPrintMode();
+
         $printer->setJustification(Printer::JUSTIFY_CENTER);
 
         $printer->feed();
@@ -82,12 +91,6 @@ try {
         foreach ($items_payment as $item_payment) {
             $printer->text($item_payment);
         }
-
-        /* Tax and total */
-        $printer->feed();
-        $printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
-        $printer->text(new formaPagamento('Total', $total, true));
-        $printer->selectPrintMode();
 
         /* Footer */
         $printer->feed();

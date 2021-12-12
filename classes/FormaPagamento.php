@@ -22,7 +22,7 @@ class FormaPagamento
         $left = str_pad($this->formaPagamento, $leftCols);
 
         $sign = ($this->dollarSign ? 'R$ ' : '');
-        $right = str_pad($sign . $this->preco, $rightCols, ' ', STR_PAD_LEFT);
+        $right = str_pad($sign . number_format($this->preco, 2, ',', '.'), $rightCols, ' ', STR_PAD_LEFT);
         return "$left$right\n";
     }
 }
